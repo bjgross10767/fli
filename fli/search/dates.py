@@ -16,8 +16,13 @@ from fli.models import DateSearchFilters
 from fli.models.google_flights.base import TripType
 from fli.search._concurrency import parallel_map
 from fli.search._urls import with_locale_params
-from fli.search._wire import parse_first_wrb_payload
+from fli.search._wire import (
+    extract_error_session_id,
+    is_rate_limit_response,
+    parse_first_wrb_payload,
+)
 from fli.search.client import get_client
+from fli.search.exceptions import GoogleFlightsRateLimited
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +189,15 @@ class SearchDates:
 
         data = parse_first_wrb_payload(response.text)
         if data is None:
+            if is_rate_limit_response(response.text):
+                session_id = extract_error_session_id(response.text)
+                raise GoogleFlightsRateLimited(
+                    "Google Flights rejected the date search with an "
+                    "ErrorResponse envelope instead of date rows. Likely "
+                    "rate-limited or quota-exhausted on this client "
+                    "fingerprint. Retry after a short backoff (30-60s).",
+                    session_id=session_id,
+                )
             return None
 
         try:

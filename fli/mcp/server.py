@@ -39,7 +39,7 @@ from fli.models import (
     PassengerInfo,
     TripType,
 )
-from fli.search import SearchDates, SearchFlights
+from fli.search import GoogleFlightsRateLimited, SearchDates, SearchFlights
 
 
 class FlightSearchConfig(BaseSettings):
@@ -662,6 +662,15 @@ def _execute_flight_search(params: FlightSearchParams) -> dict[str, Any]:
 
     except ParseError as e:
         return {"success": False, "error": str(e), "flights": []}
+    except GoogleFlightsRateLimited as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "code": "RATE_LIMITED",
+            "retry_after_s": 30,
+            "session_id": e.session_id,
+            "flights": [],
+        }
     except Exception as e:
         error_msg = str(e)
         if "validation error" in error_msg.lower():
@@ -757,6 +766,15 @@ def _execute_booking_options(
 
     except ParseError as e:
         return {"success": False, "error": str(e), "options": []}
+    except GoogleFlightsRateLimited as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "code": "RATE_LIMITED",
+            "retry_after_s": 30,
+            "session_id": e.session_id,
+            "options": [],
+        }
     except Exception as e:
         error_msg = str(e)
         if "validation error" in error_msg.lower():
@@ -857,6 +875,15 @@ def _execute_date_search(params: DateSearchParams) -> dict[str, Any]:
 
     except ParseError as e:
         return {"success": False, "error": str(e), "dates": []}
+    except GoogleFlightsRateLimited as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "code": "RATE_LIMITED",
+            "retry_after_s": 30,
+            "session_id": e.session_id,
+            "dates": [],
+        }
     except Exception as e:
         return {"success": False, "error": f"Search failed: {str(e)}", "dates": []}
 

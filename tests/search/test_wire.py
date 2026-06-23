@@ -1,8 +1,16 @@
 """Tests for the wire-format parser shared by all FlightsFrontendService responses."""
 
 import json
+from pathlib import Path
 
-from fli.search._wire import iter_wrb_chunks, parse_first_wrb_payload
+from fli.search._wire import (
+    extract_error_session_id,
+    is_rate_limit_response,
+    iter_wrb_chunks,
+    parse_first_wrb_payload,
+)
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _single_chunk(payload):
@@ -121,6 +129,57 @@ class TestIterWrbChunksEdgeCases:
         body = "".join(parts)
         chunks = list(iter_wrb_chunks(body))
         assert chunks == [[1, "alpha"], [2, "beta"]]
+
+
+class TestRateLimitDetection:
+    """Detect Google's `ErrorResponse` envelope (per-IP / fingerprint reject)."""
+
+    FIXTURE = "flight_search_rate_limit_error.txt"
+
+    def test_real_capture_is_detected(self):
+        body = (FIXTURES / self.FIXTURE).read_text(encoding="utf-8")
+        assert is_rate_limit_response(body) is True
+
+    def test_real_capture_returns_none_from_parse_first(self):
+        # Sanity: parse_first_wrb_payload still returns None (no flight rows),
+        # so callers like _fetch_flights see the None and fall through to the
+        # new rate-limit check before returning None / empty.
+        body = (FIXTURES / self.FIXTURE).read_text(encoding="utf-8")
+        assert parse_first_wrb_payload(body) is None
+
+    def test_session_id_extracted_from_real_capture(self):
+        body = (FIXTURES / self.FIXTURE).read_text(encoding="utf-8")
+        session_id = extract_error_session_id(body)
+        # The captured fixture has session id "avU5aqPqKqioj8oP77Xy6Qc" in
+        # row[5][2][0][1][0][3] of the wrb.fr envelope.
+        assert session_id == "avU5aqPqKqioj8oP77Xy6Qc"
+
+    def test_normal_success_body_not_flagged(self):
+        body = _single_chunk([1, "alpha"])
+        assert is_rate_limit_response(body) is False
+        assert extract_error_session_id(body) is None
+
+    def test_bytes_input_detected(self):
+        body = (FIXTURES / self.FIXTURE).read_bytes()
+        assert is_rate_limit_response(body) is True
+
+    def test_empty_body_not_flagged(self):
+        assert is_rate_limit_response("") is False
+        assert extract_error_session_id("") is None
+
+    def test_marker_inside_string_payload_still_detected(self):
+        # If Google ever embeds the marker inside an inner JSON string (e.g.
+        # documentation or a successful response that quotes the type URL),
+        # we still flag it — false positives are acceptable here because a
+        # genuine ErrorResponse SUPPRESSES flight rows; misdetecting a body
+        # that DID contain flights would surface as the raise overriding a
+        # parse, which never happens because parse_first_wrb_payload returns
+        # a non-None payload first and the caller never reaches the check.
+        # This test documents that contract: substring match is the intent.
+        body = ")]}'\n\n" + json.dumps(
+            [["wrb.fr", None, json.dumps(["see travel.frontend.flights.ErrorResponse"])]]
+        )
+        assert is_rate_limit_response(body) is True
 
     def test_multiple_wrb_chunks_all_yielded_with_mixed_rows(self):
         # Two separate multi-chunks, each with only wrb.fr rows.

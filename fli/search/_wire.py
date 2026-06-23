@@ -118,3 +118,77 @@ def parse_first_wrb_payload(body: str | bytes) -> Any:
     for chunk in iter_wrb_chunks(body):
         return chunk
     return None
+
+
+# Protobuf type URL Google embeds in the wrb.fr envelope when the request was
+# rejected mid-pipeline (rate-limit / fingerprint / quota). The "rejected"
+# envelope keeps the wrb.fr row but sets its inner-JSON slot (``row[2]``) to
+# ``null`` and stashes the error detail in ``row[5]``. ``parse_first_wrb_payload``
+# correctly returns None for that shape, but callers had no way to distinguish
+# "no flights match these filters" (success with empty result set) from
+# "Google rejected the request" (transient failure to retry / back off).
+RATE_LIMIT_ERROR_MARKER = "travel.frontend.flights.ErrorResponse"
+
+
+def is_rate_limit_response(body: str | bytes) -> bool:
+    """Return True if ``body`` looks like Google's ErrorResponse envelope.
+
+    Uses a substring match on the protobuf type URL Google embeds in the
+    envelope. The marker is part of a stable protobuf descriptor
+    (``type.googleapis.com/travel.frontend.flights.ErrorResponse``) so the
+    check is robust to envelope-position drift — any future field
+    reshuffle inside the envelope still keeps the type URL.
+    """
+    if isinstance(body, bytes):
+        try:
+            body = body.decode("utf-8", errors="ignore")
+        except UnicodeDecodeError:
+            return False
+    return RATE_LIMIT_ERROR_MARKER in body
+
+
+def extract_error_session_id(body: str | bytes) -> str | None:
+    """Best-effort: pull the session id from an ErrorResponse envelope.
+
+    Returns ``None`` when the body has no recognisable session id, or
+    when the envelope shape differs from the captured sample. The session
+    id is only used to enrich the exception message — never required for
+    correctness.
+    """
+    if isinstance(body, bytes):
+        try:
+            body = body.decode("utf-8", errors="ignore")
+        except UnicodeDecodeError:
+            return None
+    if RATE_LIMIT_ERROR_MARKER not in body:
+        return None
+    # Strip the JSONP prefix and parse the outer chunk list.
+    raw = body.lstrip()
+    if raw.startswith(")]}'"):
+        raw = raw[len(")]}'") :]
+    raw = raw.lstrip()
+    if not raw:
+        return None
+    try:
+        outer = json.loads(raw)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(outer, list):
+        return None
+    for row in outer:
+        if (
+            isinstance(row, list)
+            and len(row) >= 6
+            and row[0] == "wrb.fr"
+            and isinstance(row[5], list)
+        ):
+            try:
+                details = row[5][2][0]
+                # details = [type_url, [[_, [session_meta], 0, session_id, ...], 0]]
+                if isinstance(details, list) and len(details) >= 2 and isinstance(details[1], list):
+                    candidate = details[1][0][3]
+                    if isinstance(candidate, str) and candidate:
+                        return candidate
+            except (IndexError, TypeError):
+                continue
+    return None

@@ -27,8 +27,14 @@ from fli.search._decoders import (
 )
 from fli.search._urls import with_locale_params
 from fli.search._urls import with_locale_params as _with_locale_params  # noqa: F401
-from fli.search._wire import iter_wrb_chunks, parse_first_wrb_payload
+from fli.search._wire import (
+    extract_error_session_id,
+    is_rate_limit_response,
+    iter_wrb_chunks,
+    parse_first_wrb_payload,
+)
 from fli.search.client import get_client
+from fli.search.exceptions import GoogleFlightsRateLimited
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +179,21 @@ class SearchFlights:
 
         inner = parse_first_wrb_payload(response.text)
         if inner is None:
+            # Google sometimes returns HTTP 200 with an ErrorResponse envelope
+            # (rate-limit / fingerprint reject / quota) instead of flight data.
+            # The wrb.fr row is present but its inner-JSON slot is null. Raise
+            # so callers can distinguish "rejected, retry" from "no flights
+            # match these filters" instead of swallowing as an empty result.
+            if is_rate_limit_response(response.text):
+                session_id = extract_error_session_id(response.text)
+                raise GoogleFlightsRateLimited(
+                    "Google Flights rejected the request with an ErrorResponse "
+                    "envelope instead of flight rows. Likely rate-limited or "
+                    "quota-exhausted on this client fingerprint. Retry after a "
+                    "short backoff (30-60s); rotating curl_cffi's `impersonate` "
+                    "value sometimes helps if backoff alone is not enough.",
+                    session_id=session_id,
+                )
             return None
 
         if capture_session:
