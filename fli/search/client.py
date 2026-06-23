@@ -21,6 +21,7 @@ callers cooperate cleanly under Google's 10 req/sec ceiling.
 from __future__ import annotations
 
 import os
+import random
 import threading
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,44 @@ from fli.search.exceptions import (
     SearchHTTPError,
     SearchTimeoutError,
 )
+
+# Pool of curl_cffi browser fingerprints used for per-request rotation.
+# Google's per-IP throttling appears to also key off TLS / HTTP-2 fingerprint
+# (JA3 + ALPN + frame settings + h2 priority frames). Sticking to a single
+# ``impersonate="chrome"`` across a tight burst of flight queries exhausts
+# the per-fingerprint quota and Google starts returning the ErrorResponse
+# envelope (see PR #208 and ``tests/search/fixtures/flight_search_rate_limit_error.txt``).
+# Rotating per request spreads the load across multiple browser identities.
+#
+# The pool intentionally mixes Chrome variants with Firefox + Safari to widen
+# the JA3 surface. Order doesn't matter — :func:`pick_impersonate` samples
+# uniformly. Add new values as curl_cffi ships them; verify each is in
+# ``curl_cffi.requests.BrowserType`` first.
+_IMPERSONATE_POOL = (
+    "chrome120",
+    "chrome124",
+    "chrome131",
+    "firefox133",
+    "safari17_0",
+)
+
+
+def pick_impersonate() -> str:
+    """Return a random curl_cffi impersonation profile from the rotation pool.
+
+    Per-request rotation spreads tight bursts of flight queries across
+    multiple TLS / HTTP-2 fingerprints so callers running airfare-table
+    workflows (one-way + round-trip + many filter combinations in close
+    succession) don't exhaust Google's per-fingerprint quota and trip the
+    rejected-envelope path surfaced by :class:`GoogleFlightsRateLimited`.
+
+    The rotation is best-effort: it reduces the rate of rate-limit hits
+    but does not eliminate them. Callers should still handle the
+    :class:`GoogleFlightsRateLimited` exception (or its MCP equivalent
+    ``{"code": "RATE_LIMITED"}``) and back off.
+    """
+    return random.choice(_IMPERSONATE_POOL)
+
 
 # ``curl_cffi`` adds ~100ms to import time on first load — we only need
 # it once an HTTP request actually fires, so import lazily on first use.

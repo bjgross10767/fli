@@ -21,7 +21,7 @@ from fli.search._wire import (
     is_rate_limit_response,
     parse_first_wrb_payload,
 )
-from fli.search.client import get_client
+from fli.search.client import get_client, pick_impersonate
 from fli.search.exceptions import GoogleFlightsRateLimited
 
 logger = logging.getLogger(__name__)
@@ -182,7 +182,7 @@ class SearchDates:
         response = self.client.post(
             url=url,
             data=f"f.req={encoded_filters}",
-            impersonate="chrome",
+            impersonate=pick_impersonate(),
             allow_redirects=True,
         )
         response.raise_for_status()

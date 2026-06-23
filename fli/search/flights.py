@@ -33,7 +33,7 @@ from fli.search._wire import (
     iter_wrb_chunks,
     parse_first_wrb_payload,
 )
-from fli.search.client import get_client
+from fli.search.client import get_client, pick_impersonate
 from fli.search.exceptions import GoogleFlightsRateLimited
 
 logger = logging.getLogger(__name__)
@@ -172,7 +172,7 @@ class SearchFlights:
         response = self.client.post(
             url=url,
             data=f"f.req={encoded}",
-            impersonate="chrome",
+            impersonate=pick_impersonate(),
             allow_redirects=True,
         )
         response.raise_for_status()
@@ -352,7 +352,7 @@ class SearchFlights:
         response = self.client.post(
             url=url,
             data=f"f.req={encoded}",
-            impersonate="chrome",
+            impersonate=pick_impersonate(),
             allow_redirects=True,
         )
         response.raise_for_status()
