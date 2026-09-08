@@ -205,7 +205,7 @@ find out where (and at what price) a specific flight can be booked.
 | `max_stops` | string | No | ANY | ANY, NON_STOP, ONE_STOP, or TWO_PLUS_STOPS |
 | `passengers` | int | No | 1 | Number of adult passengers |
 | `airlines` | list | No | null | Filter by airline codes (e.g., ['BA', 'AA']) |
-| `exclude_basic_economy` | bool | No | false | Exclude basic economy fares |
+| `exclude_basic_economy` | bool | No | true | Exclude basic economy fares. On by default (standard main-cabin fares); pass `false` to include basic economy. Override the default with `FLI_MCP_DEFAULT_EXCLUDE_BASIC_ECONOMY`. |
 | `departure_window` | string | No | null | Time window in 'HH-HH' format (e.g., '6-20') |
 | `sort_by` | string | No | CHEAPEST | Sort order — matters when `flight_numbers` is omitted |
 | `exclude_airlines` | list | No | null | Airline IATA codes to **exclude** |

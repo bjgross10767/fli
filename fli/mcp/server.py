@@ -66,6 +66,15 @@ class FlightSearchConfig(BaseSettings):
         "CHEAPEST",
         description="Default sorting strategy for flight results.",
     )
+    default_exclude_basic_economy: bool = Field(
+        True,
+        description=(
+            "Default for excluding basic economy fares. On by default so results "
+            "show standard main-cabin fares (e.g. Delta Main Classic) rather than "
+            "Main Basic. Override per call, or with "
+            "FLI_MCP_DEFAULT_EXCLUDE_BASIC_ECONOMY=false."
+        ),
+    )
     default_departure_window: str | None = Field(
         None,
         description="Optional default departure window in 'HH-HH' 24-hour format.",
@@ -133,7 +142,8 @@ class FlightSearchParams(BaseModel):
         description="Number of adult passengers",
     )
     exclude_basic_economy: bool = Field(
-        False, description="Exclude basic economy fares from results"
+        CONFIG.default_exclude_basic_economy,
+        description="Exclude basic economy fares from results",
     )
     emissions: str = Field("ALL", description="Filter by emissions level: ALL or LESS")
     checked_bags: int = Field(
@@ -949,8 +959,11 @@ def search_flights(
     ] = None,
     exclude_basic_economy: Annotated[
         bool,
-        Field(description="Exclude basic economy fares from results"),
-    ] = False,
+        Field(
+            description="Exclude basic economy fares from results."
+            " Defaults to true; pass false to include basic economy."
+        ),
+    ] = CONFIG.default_exclude_basic_economy,
     emissions: Annotated[
         str,
         Field(description="Filter by emissions level: ALL or LESS"),
@@ -1219,8 +1232,11 @@ def get_booking_options(
     ] = None,
     exclude_basic_economy: Annotated[
         bool,
-        Field(description="Exclude basic economy fares from results"),
-    ] = False,
+        Field(
+            description="Exclude basic economy fares from results."
+            " Defaults to true; pass false to include basic economy."
+        ),
+    ] = CONFIG.default_exclude_basic_economy,
     currency: Annotated[
         str | None,
         Field(description="ISO 4217 currency code (USD, EUR, GBP, JPY...) for prices."),
